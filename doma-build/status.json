@@ -1,8 +1,8 @@
 {
-  "status": "failure",
-  "source_commit": "0f3c486ddc40430ecfccbaa04dc0a2701d31da61",
-  "run_id": "45604491021",
+  "status": "success",
+  "source_commit": "63b839185073c6691ed27454273e36edb9f2042a",
+  "run_id": "45604612918",
   "run_attempt": "1",
-  "apk_compiled": false,
-  "recorded_at_utc": "2026-11-25T11:26:57.020869+00:00"
+  "apk_compiled": true,
+  "recorded_at_utc": "2026-11-25T11:28:35.384309+00:00"
 }\n
