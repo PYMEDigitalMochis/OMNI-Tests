@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -86,3 +86,31 @@ jobs:
           path: doma-build/build.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Save observable build result on isolated branch
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          BUILD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,datetime,pathlib
+          apk=pathlib.Path('android/app/build/outputs/apk/debug/app-debug.apk')
+          data={
+            'status':os.getenv('JOB_STATUS'),
+            'source_commit':os.getenv('BUILD_SHA'),
+            'run_id':os.getenv('RUN_ID'),
+            'run_attempt':os.getenv('RUN_ATTEMPT'),
+            'apk_compiled':apk.is_file() and apk.stat().st_size>0,
+            'recorded_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()
+          }
+          pathlib.Path('doma-build/status.json').write_text(json.dumps(data,indent=2)+'\\n')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add doma-build/status.json
+          git commit -m "ci: persist DOMA build result [skip ci]" || true
+          git push origin HEAD:build/doma-v1.8-android
