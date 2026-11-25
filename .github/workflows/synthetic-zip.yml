@@ -1,0 +1,59 @@
+name: Synthetic ZIP integrity
+on:
+  push:
+    branches: [qa/synthetic-bootstrap]
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: synthetic-zip-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Synthetic roundtrip and rejection checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, pathlib, unittest, zipfile
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+          expected = {f'project-{i:02d}/{name}': f'{i}:{name}:á'.encode() for i in range(30) for name in ('index.html','style.css','app.js','assets/sample.txt')}
+          def archive(files):
+              buf = io.BytesIO()
+              with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+                  for name, content in files:
+                      z.writestr(name, content)
+              return buf.getvalue()
+          def validate(blob):
+              with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                  names = z.namelist()
+                  if len(names) != len(set(names)):
+                      raise ValueError('duplicate path')
+                  for n in names:
+                      p = pathlib.PurePosixPath(n)
+                      if p.is_absolute() or '..' in p.parts or '\\' in n or ':' in n:
+                          raise ValueError('unsafe path')
+                  if set(names) != set(expected):
+                      raise ValueError('manifest mismatch')
+                  if z.testzip() is not None:
+                      raise ValueError('CRC mismatch')
+                  if any(digest(z.read(n)) != digest(expected[n]) for n in names):
+                      raise ValueError('SHA-256 mismatch')
+                  return len(names)
+          class Tests(unittest.TestCase):
+              def test_roundtrip(self): self.assertEqual(validate(archive(expected.items())), 120)
+              def test_missing(self):
+                  with self.assertRaises(ValueError): validate(archive(list(expected.items())[1:]))
+              def test_modified(self):
+                  files = dict(expected); files[next(iter(files))] = b'changed'
+                  with self.assertRaises(ValueError): validate(archive(files.items()))
+              def test_duplicate(self):
+                  with self.assertRaises(ValueError): validate(archive(list(expected.items()) + [next(iter(expected.items()))]))
+              def test_traversal(self):
+                  with self.assertRaises(ValueError): validate(archive(list(expected.items()) + [('../outside',b'bad')]))
+              def test_corrupt(self):
+                  with self.assertRaises(zipfile.BadZipFile): validate(archive(expected.items())[:12])
+          unittest.main(verbosity=2)
+          PY
